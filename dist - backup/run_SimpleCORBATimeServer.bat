@@ -1,0 +1,1 @@
+java -jar SimpleCORBATimeServer.jar -ORBInitRef.NameService=corbaloc::localhost:2089/StandardNS/NameServer-POA/_root

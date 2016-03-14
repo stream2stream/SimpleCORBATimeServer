@@ -1,0 +1,9 @@
+module  timeServices
+{
+    interface   TimeServer
+    {
+        string  getJavaDateAndTime();
+    };
+
+    
+};
