@@ -4,7 +4,9 @@
  */
 package simplecorbatimeserver;
 
+import corbastuff.KeyboardHandler;
 import corbastuff.ORBHandler;
+import corbastuff.codeWalker;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -22,14 +24,20 @@ import timeServices.TimeServerHelper;
  */
 public class SimpleCORBATimeServer
 {
-    static private String  itsServerIdCommand = "-serverid:";
+    static private final    String  itsServerIdCommand = "-serverid:";
+    static private final    String  itsInstancesCommand = "-instances:";
+    static private final    String  itsDebugCommand = "-debug:";
     static private String  itsServerId = "TimeServer";
+    static private boolean isDebugOn = false;
+    static private int     itsNoOfInstances = 1;
 
     /**
      * @param args the command line arguments
      */
     public static void main(String[] args)
     {
+        SimpleCORBATimeServer self = new SimpleCORBATimeServer();
+        
         Object tobj = new Object();
         try
         {
@@ -42,17 +50,8 @@ public class SimpleCORBATimeServer
                 ORBHandler.getInstance().itsMonitor.wait();
             }
             
-            for( int argv = 0; argv < args.length; argv++ )
-            {
-                int idx = args[argv].indexOf(itsServerIdCommand);
-                if( idx > -1 )
-                {
-                    String tempServerId = args[argv].substring(idx + itsServerIdCommand.length());
-                    if( tempServerId.length() > 0 )
-                        itsServerId = tempServerId;
-                }
-            }
-
+            self.parseParams(args);
+            
             // add your creating of object implementation here
             TimeServerImpl myServant = new TimeServerImpl();
             ORBHandler.its_POA.activate_object_with_id("TimeServer".getBytes(), myServant);
@@ -77,6 +76,7 @@ public class SimpleCORBATimeServer
             System.out.println("plans rebind sucessful!");
 
             System.out.println( "CORBA Java server running ..." );
+            self.waitForShutdownCommand();
         }
         catch( Exception e )
         {
@@ -108,7 +108,62 @@ public class SimpleCORBATimeServer
         {
             Logger.getLogger(SimpleCORBATimeServer.class.getName()).log(Level.SEVERE, null, ex);
         }
-        
     }
+
+    void    parseParams( String args[] )
+    {
+        for (String arg : args)
+        {
+            int idx = arg.indexOf(itsServerIdCommand);
+            if( idx > -1 )
+            {
+                String tempServerId = arg.substring(idx + itsServerIdCommand.length());
+                if( tempServerId.length() > 0 )
+                    itsServerId = tempServerId;
+            }
+            idx = arg.indexOf(itsInstancesCommand);
+            if(idx > -1)
+            {
+                String tempInstanceValue = arg.substring(idx + itsInstancesCommand.length());
+                if( tempInstanceValue.length() > 0 )
+                {
+                    itsNoOfInstances = Integer.parseInt(tempInstanceValue);
+                }
+            }
+            idx = arg.indexOf(itsDebugCommand);
+            if(idx > -1)
+            {
+                String tempDebugValue = arg.substring(idx + itsDebugCommand.length());
+                if( tempDebugValue.equalsIgnoreCase("on") )
+                {
+                    isDebugOn = true;
+                }
+            }
+        }
+    }
+
+        public  void waitForShutdownCommand()
+    {
+        Thread tt = new Thread( KeyboardHandler.getInstance() );
+        
+        tt.start();
+        
+        System.out.println("Waiting for a quit command");
+        synchronized( KeyboardHandler.getInstance().itsMonitor )
+        {
+            try 
+            {
+                KeyboardHandler.getInstance().itsMonitor.wait();
+            } 
+            catch (InterruptedException ex) 
+            {
+                Logger.getLogger(codeWalker.class.getName()).log(Level.SEVERE, null, ex);
+            }
+        }
+        System.out.println("Application is shutting down");
+        ORBHandler.getInstance().shutdownOrderly();
+        System.out.println("Application has quit...");
+    }
+
 
 }
