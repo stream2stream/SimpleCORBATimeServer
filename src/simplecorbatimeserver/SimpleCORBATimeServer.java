@@ -83,6 +83,16 @@ public class SimpleCORBATimeServer
         };
     }
     
+    public  String  generateObjectPrefix( int index )
+    {
+        String  result = "";
+        
+        if( index > 0 )
+            result = "-" + index;
+        
+        return result;
+    }
+    
     static private void saveIORToFile( String fname, TimeServerImpl myServant ) throws ServantNotActive, WrongPolicy
     {
         org.omg.CORBA.Object poaObj = ORBHandler.its_rootPOA.servant_to_reference(myServant);
@@ -175,7 +185,7 @@ public class SimpleCORBATimeServer
             for( int idx = 0; idx < noOfInstances; idx++ )
             {
                 itsServants[idx] = new TimeServerImpl();
-                String oid = "[" + itsServerId + "-"+idx + "]";
+                String oid = "[" + itsServerId + generateObjectPrefix(idx) + "]";
                 ORBHandler.its_POA.activate_object_with_id(oid.getBytes(), itsServants[idx]);
                 org.omg.CORBA.Object theActivatedServant = ORBHandler.its_rootPOA.servant_to_reference(itsServants[idx]);
                 itsActivatedServants[idx] = TimeServerHelper.narrow(theActivatedServant);            
@@ -216,7 +226,7 @@ public class SimpleCORBATimeServer
 
                 for( int idx = 0; idx < itsNoOfInstances; idx++ )
                 {
-                    NameComponent nc1 = new NameComponent(itsServerId+"-"+idx, "clock object");
+                    NameComponent nc1 = new NameComponent(itsServerId + generateObjectPrefix(idx), "clock object");
                     NameComponent[] name1 = {nc1};
                     itsNamingServer.rebind(name1, activatedServants[idx]);
                 }
@@ -248,7 +258,7 @@ public class SimpleCORBATimeServer
             {
             for( int idx = 0; idx < itsNoOfInstances; idx++ )
                 {
-                    NameComponent nc1 = new NameComponent(itsServerId + "-" + idx, "clock object");
+                    NameComponent nc1 = new NameComponent(itsServerId + generateObjectPrefix(idx), "clock object");
                     NameComponent[]name1 = {nc1};
                     itsNamingServer.unbind(name1);
                 }
