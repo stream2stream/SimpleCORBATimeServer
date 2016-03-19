@@ -12,7 +12,12 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import org.omg.CORBA.ORBPackage.InvalidName;
 import org.omg.CosNaming.*;
+import org.omg.CosNaming.NamingContextPackage.CannotProceed;
+import org.omg.CosNaming.NamingContextPackage.NotFound;
+import org.omg.PortableServer.POAPackage.ObjectAlreadyActive;
+import org.omg.PortableServer.POAPackage.ServantAlreadyActive;
 import org.omg.PortableServer.POAPackage.ServantNotActive;
 import org.omg.PortableServer.POAPackage.WrongPolicy;
 import timeServices.TimeServer;
@@ -24,12 +29,15 @@ import timeServices.TimeServerHelper;
  */
 public class SimpleCORBATimeServer
 {
-    static private final    String  itsServerIdCommand = "-serverid:";
-    static private final    String  itsInstancesCommand = "-instances:";
-    static private final    String  itsDebugCommand = "-debug:";
-    static private String  itsServerId = "TimeServer";
-    static private boolean isDebugOn = false;
-    static private int     itsNoOfInstances = 1;
+    static  private final    String  itsServerIdCommand = "-serverid:";
+    static  private final    String  itsInstancesCommand = "-instances:";
+    static  private final    String  itsDebugCommand = "-debug:";
+    static  private String  itsServerId = "TimeServer";
+    static  private boolean isDebugOn = false;
+    static  private TimeServerImpl[]  itsServants;
+    static  private TimeServer[]      itsActivatedServants;
+    static  private int     itsNoOfInstances = 1;
+    private NamingContextExt itsNamingServer;
 
     /**
      * @param args the command line arguments
@@ -52,29 +60,20 @@ public class SimpleCORBATimeServer
             
             self.parseParams(args);
             
-            // add your creating of object implementation here
-            TimeServerImpl myServant = new TimeServerImpl();
-            ORBHandler.its_POA.activate_object_with_id("TimeServer".getBytes(), myServant);
-            //myServant._this();
-
-            // Going to try and use the TAO naming service...
-            org.omg.CORBA.Object obj = ORBHandler.its_ORB.resolve_initial_references( "NameService" );
-            NamingContextExt its_NamingServer = NamingContextExtHelper.narrow( obj );
-
-            if( its_NamingServer == null )
-                System.out.println(" Can't bind to the Naming Service");
-            else
-                System.out.println(" Found Naming Service");
+            // New code
+            TimeServerImpl[] myServants = self.activateTheServants( itsNoOfInstances );
             
-            NameComponent nc1 = new NameComponent(itsServerId, "kernel object");
-            NameComponent[] name1 = {nc1};
-            its_NamingServer.rebind(name1, ORBHandler.its_rootPOA.servant_to_reference(myServant));
+            self.registerWithNamingService( itsActivatedServants );
 
-            // for testing purposues
-            saveIORToFile(myServant);
-
-            System.out.println("plans rebind sucessful!");
-
+            if( isDebugOn )
+            {
+                for( int idx = 0; idx < myServants.length; idx++ )
+                {
+                    // for testing purposues
+                    self.saveIORToFile(itsServerId + idx + ".ior.txt", myServants[idx]);
+                }
+            }
+            
             System.out.println( "CORBA Java server running ..." );
             self.waitForShutdownCommand();
         }
@@ -84,22 +83,22 @@ public class SimpleCORBATimeServer
         };
     }
     
-    static private void saveIORToFile( TimeServerImpl myServant ) throws ServantNotActive, WrongPolicy
+    static private void saveIORToFile( String fname, TimeServerImpl myServant ) throws ServantNotActive, WrongPolicy
     {
         org.omg.CORBA.Object poaObj = ORBHandler.its_rootPOA.servant_to_reference(myServant);
         TimeServer servant = TimeServerHelper.narrow(poaObj);
         String objIOR = ORBHandler.its_ORB.object_to_string(servant);
         
-        writeToFile( objIOR );
+        writeToFile( fname, objIOR );
 
         System.out.println( objIOR );
     }
     
-    static  private void    writeToFile( String text )
+    static  private void    writeToFile( String fname, String text )
     {
         try 
         {
-            FileWriter writer = new FileWriter( "timeserver.ior.txt", false );
+            FileWriter writer = new FileWriter( fname, false );
             PrintWriter pwriter = new PrintWriter( writer );
             
             pwriter.print(text);
@@ -161,8 +160,112 @@ public class SimpleCORBATimeServer
             }
         }
         System.out.println("Application is shutting down");
+        unregisterFromNamingServer();
         ORBHandler.getInstance().shutdownOrderly();
         System.out.println("Application has quit...");
+    }
+
+    private TimeServerImpl[] activateTheServants( int noOfInstances )
+    {
+        itsServants = new TimeServerImpl[noOfInstances];
+        itsActivatedServants = new TimeServer[noOfInstances];
+        
+        try
+        {
+            for( int idx = 0; idx < noOfInstances; idx++ )
+            {
+                itsServants[idx] = new TimeServerImpl();
+                String oid = "[" + itsServerId + "-"+idx + "]";
+                ORBHandler.its_POA.activate_object_with_id(oid.getBytes(), itsServants[idx]);
+                org.omg.CORBA.Object theActivatedServant = ORBHandler.its_rootPOA.servant_to_reference(itsServants[idx]);
+                itsActivatedServants[idx] = TimeServerHelper.narrow(theActivatedServant);            
+            }
+        } 
+        catch (ServantAlreadyActive ex)
+        {
+            Logger.getLogger(SimpleCORBATimeServer.class.getName()).log(Level.SEVERE, null, ex);
+        } 
+        catch (ObjectAlreadyActive ex)
+        {
+            Logger.getLogger(SimpleCORBATimeServer.class.getName()).log(Level.SEVERE, null, ex);
+        } 
+        catch (WrongPolicy ex)
+        {
+            Logger.getLogger(SimpleCORBATimeServer.class.getName()).log(Level.SEVERE, null, ex);
+        } 
+        catch (ServantNotActive ex) 
+        {
+            Logger.getLogger(SimpleCORBATimeServer.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        return  itsServants;
+    }
+
+    public  void    registerWithNamingService( TimeServer[] activatedServants )
+    {
+        try
+        {
+            // Going to try and use the TAO naming service...
+            org.omg.CORBA.Object obj = ORBHandler.its_ORB.resolve_initial_references( "NameService" );
+            itsNamingServer = NamingContextExtHelper.narrow( obj );
+            
+            if( itsNamingServer == null )
+                System.out.println(" Can't bind to the Naming Service");
+            else
+            {
+                System.out.println(" Found Naming Service");
+
+                for( int idx = 0; idx < itsNoOfInstances; idx++ )
+                {
+                    NameComponent nc1 = new NameComponent(itsServerId+"-"+idx, "clock object");
+                    NameComponent[] name1 = {nc1};
+                    itsNamingServer.rebind(name1, activatedServants[idx]);
+                }
+            }
+        } 
+        catch (InvalidName ex)
+        {
+            Logger.getLogger(SimpleCORBATimeServer.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (NotFound ex)
+        {
+            Logger.getLogger(SimpleCORBATimeServer.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (CannotProceed ex)
+        {
+            Logger.getLogger(SimpleCORBATimeServer.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (org.omg.CosNaming.NamingContextPackage.InvalidName ex)
+        {
+            Logger.getLogger(SimpleCORBATimeServer.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
+    }
+    
+        private void unregisterFromNamingServer()
+    {
+        try 
+        {
+            if( itsNamingServer == null )
+                System.out.println(" Naming Service not available");
+            else
+            {
+            for( int idx = 0; idx < itsNoOfInstances; idx++ )
+                {
+                    NameComponent nc1 = new NameComponent(itsServerId + "-" + idx, "clock object");
+                    NameComponent[]name1 = {nc1};
+                    itsNamingServer.unbind(name1);
+                }
+            }
+        } 
+        catch (NotFound ex) 
+        {
+            Logger.getLogger(SimpleCORBATimeServer.class.getName()).log(Level.SEVERE, null, ex);
+        } 
+        catch (CannotProceed ex) 
+        {
+            Logger.getLogger(SimpleCORBATimeServer.class.getName()).log(Level.SEVERE, null, ex);
+        } 
+        catch (org.omg.CosNaming.NamingContextPackage.InvalidName ex) 
+        {
+            Logger.getLogger(SimpleCORBATimeServer.class.getName()).log(Level.SEVERE, null, ex);
+        }
     }
 
 
